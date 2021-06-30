@@ -1,0 +1,107 @@
+{
+    "html": {
+        "ignore": [
+            "head",
+            "a",
+            "map",
+            "style",
+            "meta",
+            "base",
+            "link",
+            "script",
+            "noscript",
+            "img"
+        ],
+        "table": [
+            "table"
+        ],
+        "table_row": [
+            "tr"
+        ],
+        "table_cell": [
+            "td",
+            "th"
+        ],
+        "table_colspan": "colspan",
+        "table_rowspan": "rowspan"},
+    
+    "docx": {
+        "ignore": [
+            "head",
+            "a",
+            "map",
+            "style",
+            "meta",
+            "base",
+            "link",
+            "script",
+            "noscript",
+            "img"
+        ],
+        "table": [
+            "table"
+        ],
+        "table_row": [
+            "tr"
+        ],
+        "table_cell": [
+            "td",
+            "th"
+        ],
+        "table_colspan": "colspan",
+        "table_rowspan": "rowspan"},
+        
+        
+    "xlsx": {
+        "ignore": [
+            "head",
+            "a",
+            "map",
+            "style",
+            "meta",
+            "base",
+            "link",
+            "script",
+            "noscript",
+            "img"
+        ],
+        "table": [
+            "table"
+        ],
+        "table_row": [
+            "tr"
+        ],
+        "table_cell": [
+            "td",
+            "th"
+        ],
+        "table_colspan": "colspan",
+        "table_rowspan": "rowspan"},
+    
+    "xls": {
+        "ignore": [
+            "head",
+            "a",
+            "map",
+            "style",
+            "meta",
+            "base",
+            "link",
+            "script",
+            "noscript",
+            "img"
+        ],
+        "table": [
+            "table"
+        ],
+        "table_row": [
+            "tr"
+        ],
+        "table_cell": [
+            "td",
+            "th"
+        ],
+        "table_colspan": "colspan",
+        "table_rowspan": "rowspan"}
+
+    }
