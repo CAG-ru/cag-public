@@ -1,11 +1,11 @@
 {
     "database":
     {
-        "host": "rc1a-xxwxs5by2qs0y78x.mdb.yandexcloud.net",
-        "port": "6432",
-        "database": "red",
-        "user": "mvasilevskaya",
-        "password": "Lkd4g4kw2A"
+        "host": "",
+        "port": "",
+        "database": "",
+        "user": "",
+        "password": ""
     },
     "working_directory": "workdir",
     "duma_api_token": {
