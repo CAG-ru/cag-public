@@ -1,0 +1,7 @@
+mammoth
+openpyxl
+pandas
+xls2xlsx
+xlsx2html
+psycopg2-binary
+flatdict

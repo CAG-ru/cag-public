@@ -1,0 +1,4 @@
+bs4
+flatdict
+psycopg2-binary
+requests
