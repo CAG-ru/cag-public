@@ -16,10 +16,9 @@ import psycopg2
 import requests
 from bs4 import BeautifulSoup
 
-
 relative_lib_paths = [
-                      'utils/',
-                     ]
+    'utils/',
+]
 
 absolute_lib_paths = [os.path.abspath(x) for x in relative_lib_paths]
 for path in absolute_lib_paths:
@@ -340,13 +339,14 @@ def make_tasks(dump, update):
         print('Не указан файл дампа для парсинга.')
         sys.exit()
 
-    if not update or not os.path.isfile(dump):
+    if update or not os.path.isfile(dump):
         print('Начинается скачивание файла дампа.')
         download_dump(dump)
 
     with open(dump, 'r', encoding='utf-8') as fp:
         data = json.load(fp)
 
+    print('Started adding projects to queue...')
     for _ in sorted(data, key=lambda x: x['ID'], reverse=True):
         project = flatdict.FlatDict(_, delimiter='_')
         project = rename_keys(project)
@@ -356,21 +356,20 @@ def make_tasks(dump, update):
 
 
 def submit_tasks(args):
-    config = json.load(open(f'{args.config}', 'r')) 
+    config = json.load(open(f'{args.config}', 'r'))
     workdir = config['working_directory']
-    
-    print(os.getcwd())
+
     if not os.path.isdir(workdir + '/scraping/'):
         os.mkdir(workdir + '/scraping/')
-    
+
     dump = workdir + '/scraping/regulation_dump.json'
     update = args.update
     tasks = make_tasks(dump, update)
-    
+
     results = Queue()
-    
+
     connection = DBHelper(config['database'])
-    dumper = ProjectDumper(results, connection, batch_count=10)
+    dumper = ProjectDumper(results, connection, batch_count=1)
 
     scraper_executor = ThreadPoolExecutor(max_workers=args.workers)
     for _ in range(args.workers):

@@ -108,7 +108,8 @@ def duma_create_table():
            review_phase TEXT,
            introduced_by TEXT,
            introduction_date TEXT, 
-           document_link TEXT
+           document_link TEXT,
+           path text
            );
            """
 

@@ -2,13 +2,23 @@
 import argparse
 import json
 import math
+import os
+import sys
 from concurrent.futures.thread import ThreadPoolExecutor
 from queue import Queue, Empty
 
 import requests
 from bs4 import BeautifulSoup
 
-from utils.db_helper import DBHelper, duma_create_table, generate_set_values_string
+relative_lib_paths = [
+    'utils/',
+]
+
+absolute_lib_paths = [os.path.abspath(x) for x in relative_lib_paths]
+for path in absolute_lib_paths:
+    sys.path.insert(0, path)
+
+from db_helper import DBHelper, duma_create_table, generate_set_values_string
 
 
 class LawsWriter:
@@ -187,23 +197,23 @@ def enqueue_laws(status_type):
 def get_arguments():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('-s', '--status', type=int)
-    arg_parser.add_argument('-c', '--connection_path', required=True)
-    arg_parser.add_argument('-t', '--token_path', required=True)
+    arg_parser.add_argument('-c', '--config', required=True)
     return arg_parser.parse_args()
 
 
 if __name__ == '__main__':
     args = get_arguments()
 
-    config = json.load(open(f'{args.connection}', 'r'))
+    config = json.load(open(f'{args.config}', 'r'))
     connection = DBHelper(config['database'])
     connection.execute_statement(duma_create_table())
+    token = config['duma_api_token']
 
     # Получи здесь http://api.duma.gov.ru/key-request ключ к API и токен
     # для standalone-приложения
-    with open(args.token_path, 'r') as fp:
-        KEY = fp.readline().strip('\n')
-        APP_TOKEN = fp.readline().strip('\n')
+
+    KEY = token.get('key')
+    APP_TOKEN = token.get('app_token')
 
     queue = Queue()
     laws_writer = LawsWriter(connection, queue)

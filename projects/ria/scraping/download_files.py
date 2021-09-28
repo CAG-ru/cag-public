@@ -11,11 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from queue import Queue, Empty
 
+import numpy as np
+import psycopg2
 import urllib3
 
 relative_lib_paths = [
-                      'utils/',
-                     ]
+    'utils/',
+]
 
 absolute_lib_paths = [os.path.abspath(x) for x in relative_lib_paths]
 for path in absolute_lib_paths:
@@ -25,46 +27,35 @@ from db_helper import DBHelper
 
 
 class Document:
-    def __init__(self, _id=None, url=None, document_type=None,
-                 report_data=None, version=None, restart_count=0):
-        self.id = _id
-        self.url = url
+    def __init__(self, guid=None, project_id=None, document_type=None, url=None,
+                 impact_degree=None, restart_count=0):
+        self.guid = guid
+        self.project_id = project_id
         self.document_type = document_type
-        self.data = report_data
-        self.version = version
+        self.impact_degree = impact_degree
+        self.url = url
         self.restart_count = restart_count
-        if _id is None:
-            # TODO: изменить version на document_type
-            try:
-                self.id = str(report_data['internal_id'])
-                report_info = report_data['ria_report_urls'][version][0]
-                if len(report_info) == 2:
-                    self.url = report_info[1]
-            except Exception as e:
-                print(e)
 
     def check(self):
-        if self.url and self.id:
+        if self.url:
             return True
 
     def __str__(self):
-        return f'Document, version: {self.document_type}, ' \
-               f'id: {self.id}, url: {self.url}'
+        return f'Document type: {self.document_type}, ' \
+               f'id: {self.guid}, url: {self.url}'
 
 
 class Downloader:
     def __init__(self,
                  tasks_queue,
-                 directory,
                  parent_directory,
                  waiting_time=2,
                  max_restart_count=4,
                  ):
         self.is_running = True
         self.tasks_queue = tasks_queue
-        self.directory = directory
         self.failed_tasks = []
-        self.parent_directory = self.make_dir(parent_directory)
+        self.parent_directory = parent_directory
         self.waiting_time = waiting_time
         self.max_restart_count = max_restart_count
         self.http = urllib3.PoolManager(timeout=10, cert_reqs='CERT_NONE')
@@ -80,72 +71,94 @@ class Downloader:
                 return
             else:
                 try:
-                    print(f'downloading {task.url}')
+                    print(f'Downloading {task.url}')
                     self.save_file(task)
                 except Exception as e:
                     print(e)
                     self.fail_task(task)
                 self.tasks_queue.task_done()
-                print('task done')
+                print('Task done')
                 time.sleep(1)
 
     def stop(self):
         self.is_running = False
 
-    def make_dir(self, _dir):
-        if not os.path.isdir(_dir):
-            os.mkdir(_dir)
-        dirname = os.path.join(_dir, self.directory)
-        if not os.path.isdir(dirname):
-            os.mkdir(dirname)
-        return dirname
-
     def save_file(self, task):
-        response = self.http.request('GET', task.url, preload_content=False)
         try:
-            if re.search('fileid=(.*)', task.url) \
-                    or re.search('sozd.duma.gov.ru/download/*', task.url):
-                ext = response.getheader('Content-Disposition') \
-                    .split('.')[-1].strip('"')
-                path = os.path.join(self.parent_directory, f'{task.id}.{ext}')
-                with open(path, 'wb') as f:
-                    shutil.copyfileobj(response, f)
-            else:
-                ext = 'html'
-                path = os.path.join(self.parent_directory, f'{task.id}.{ext}')
-                with open(path, 'wb') as f:
-                    f.write(response.data)
-                    f.flush()
-
-            if task.document_type not in ['current', 'updated',
-                                          'published', 'sozd']:
-                try:
-                    self.write_to_db({
-                        'id': task.id,
-                        'path': f'{self.directory}/{task.id}.{ext}',
-                        'type': task.document_type
-                    })
-                except Exception as e:
-                    print(e)
-                    print(f'Не удалось записать {task.id} в базу.')
-
-        except Exception as e:
+            response = self.http.request('GET', task.url, preload_content=False)
+        except urllib3.exceptions.ResponseError as e:
             print(e)
-            print(f'Не получилось скачать {task.id}')
         else:
-            response.release_conn()
+            if task.document_type in ['decision', 'discussion',
+                                      'main_ria_report', 'updated_ria_report',
+                                      'previous_ria_report']:
+                directory = f'{self.parent_directory}/' \
+                            f'{task.document_type}_{task.impact_degree}'
+            elif task.document_type in ['current_npa', 'updated_npa',
+                                        'published_law_link']:
+                type_name = task.document_type.split('_')[0]
+                directory = f'{self.parent_directory}/npa/{type_name}'
+            else:
+                directory = f'{self.parent_directory}/duma'
+
+            try:
+                if re.search('fileid=(.*)', task.url) \
+                        or re.search('sozd.duma.gov.ru/download/*', task.url):
+                    ext = response.getheader('Content-Disposition') \
+                        .split('.')[-1].strip('"')
+                    path = os.path.join(directory, f'{task.project_id}.{ext}')
+                    with open(path, 'wb') as f:
+                        shutil.copyfileobj(response, f)
+                else:
+                    ext = 'html'
+                    path = os.path.join(directory, f'{task.project_id}.{ext}')
+                    with open(path, 'wb') as f:
+                        f.write(response.data)
+                        f.flush()
+                if task.document_type == 'duma':
+                    try:
+                        self.write_to_duma({
+                            'project_id': '1192824-7',
+                            'path': path
+                        })
+                    except psycopg2.DatabaseError as e:
+                        print(e)
+                        print(f'Не удалось записать {task.id} в базу.')
+                else:
+                    try:
+                        self.write_to_document({
+                            'guid': task.guid,
+                            'path': path
+                        })
+                    except psycopg2.DatabaseError as e:
+                        print(e)
+                        print(f'Не удалось записать {task.id} в базу.')
+            except Exception as e:
+                print(e)
+                print(f'Не получилось скачать {task.guid}')
+            else:
+                response.release_conn()
 
     @staticmethod
-    def write_to_db(task):
-        task_id = task['id']
-        task_path = task['path']
-        task_type = task['type']
+    def write_to_document(task):
+        guid = task['guid']
+        path = task['path']
         statement = 'UPDATE document ' \
                     'SET path=\'{}\' ' \
                     'WHERE ' \
-                    'project_id={} ' \
-                    'AND type=\'{}\'' \
-                    ';'.format(task_path, task_id, task_type)
+                    'guid=\'{}\'' \
+                    ';'.format(path, guid)
+        connection.execute_statement(statement)
+
+    @staticmethod
+    def write_to_duma(task):
+        project_id = task['project_id']
+        path = task['path']
+        statement = 'UPDATE duma ' \
+                    'SET path=\'{}\' ' \
+                    'WHERE ' \
+                    'duma_project_id=\'{}\'' \
+                    ';'.format(path, project_id)
         connection.execute_statement(statement)
 
     def fail_task(self, task):
@@ -157,105 +170,81 @@ class Downloader:
             self.tasks_queue.put(new_task)
 
 
-def make_queue(input_type, document_type=None, impact_degree=None):
+def make_queue(input_db, document_type=None):
     queue = Queue()
     failed_tasks = []
 
-    result = select_from_database(input_type, document_type, impact_degree)
+    result = select_from_database(input_db)
     for _ in result:
-        if input_type in ['published', 'sozd']:
-            task = Document(_id=_[0], url=_[1], document_type=input_type)
-        elif input_type == 'current':
-            task = Document(_id=_[0], url=_[1], document_type=input_type)
-        elif input_type == 'updated':
-            url = list(filter(lambda x: str(x).startswith('https'), _))[0]
-            task = Document(_id=_[0], url=url, document_type=input_type)
+        if input_db == 'duma':
+            task = Document(guid=None, project_id=_[0],
+                            url=_[1], document_type=input_db)
         else:
-            url = _[1] if _[1] is not None else _[2]
-            task = Document(_id=_[0], url=url, document_type=_[3])
+            task = Document(guid=_[0], project_id=_[1],
+                            document_type=_[2], url=_[3], impact_degree=_[4])
         if task.check():
             queue.put(task)
         else:
             print(f'Не получилось сделать task c документом '
-                  f'{document_type} для {task.id}')
-            failed_tasks.append(task.id)
+                  f'{document_type} для {task.guid}')
+            failed_tasks.append(task.guid)
     return queue, failed_tasks
 
 
-def select_from_database(input_type, document_type, impact_degree):
-    if input_type == 'published':
-        statement = 'SELECT internal_id, published_law_link ' \
-                    'FROM project ' \
-                    'WHERE NOT published_law_link IS NULL;'
-    elif input_type == 'sozd':
-        statement = 'SELECT number, document_link ' \
+def select_from_database(input_type):
+    if input_type == 'duma':
+        statement = 'SELECT duma_project_id, document_link ' \
                     'FROM duma ' \
                     'WHERE NOT document_link IS NULL;'
-    elif input_type == 'current':
-        statement = 'SELECT id, current ' \
-                    'FROM orv_reports.documents_links ' \
-                    'WHERE current IS NOT NULL;'
-    elif input_type == 'updated':
-        statement = 'SELECT id, upd_0, upd_1, upd_2 ' \
-                    'FROM orv_reports.documents_links ' \
-                    'WHERE upd_0 IS NOT NULL ' \
-                    'OR upd_1 IS NOT NULL ' \
-                    'OR upd_2 IS NOT NULL;'
-    elif input_type == 'internal':
-        impact_degree_clause = 'impact_degree IS NULL' \
-            if impact_degree is None \
-            else f'impact_degree=\'{impact_degree}\''
-
-        statement = 'SELECT project_id, preview_link, storage_link, type ' \
-                    'FROM document ' \
-                    'WHERE ' \
-                    'type=\'{}\' ' \
-                    'AND path IS NULL ' \
-                    'AND project_id IN (' \
-                    'SELECT internal_id FROM project WHERE {})' \
-                    ';'.format(document_type, impact_degree_clause)
     else:
-        print('Уточните тип документа.')
-        sys.exit()
+        statement = 'SELECT guid, document.regulation_project_id, ' \
+                    'document_type, link, regulatory_impact ' \
+                    'FROM document ' \
+                    'INNER JOIN project ' \
+                    'ON document.regulation_project_id=project.regulation_project_id;' \
+
     return connection.select_statement(statement)
 
 
 def get_arguments():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('-c', '--config', required=True)
-    arg_parser.add_argument('-i', '--input', default='internal',
-                            choices=['internal', 'current', 'updated',
-                                     'published', 'sozd'])
-    arg_parser.add_argument('-d', '--directory', default='./downloads')
+    arg_parser.add_argument('-i', '--input', required=True,
+                            choices=['duma', 'orv'])
     arg_parser.add_argument('-w', '--workers', default=1, type=int)
-    arg_parser.add_argument('-impact', '--impact')
-    arg_parser.add_argument('-type', '--type')
     return arg_parser.parse_args()
+
+
+def create_directories():
+    for d in [download_directory, f'{download_directory}/duma',
+              f'{download_directory}/npa/current',
+              f'{download_directory}/npa/updated',
+              f'{download_directory}/npa/published']:
+        os.makedirs(d, exist_ok=True)
+    for t, i in np.array(np.meshgrid(
+            ['decision', 'discussion', 'main_ria_report',
+             'previous_ria_report', 'updated_ria_report'],
+            ['Высокая', 'Средняя', 'Низкая', 'None', 'Не_определена'])) \
+            .T.reshape(-1, 2):
+        os.makedirs(f'{download_directory}/{t}_{i}', exist_ok=True)
 
 
 if __name__ == '__main__':
     args = get_arguments()
 
-    config = json.load(
-        open(args.config, 'r'))
-    
+    config = json.load(open(args.config, 'r'))
+
     connection = DBHelper(config['database'])
     connection.setup()
 
-    input_type = args.input
-    download_directory = config['working_directory'] + \
-        '/scraping/downloads'
+    input_db = args.input
+    download_directory = config['working_directory'] + '/scraping'
     workers = args.workers
-    degree = args.impact
-    doc_type = args.type
 
-    tasks, failed = make_queue(input_type, doc_type, degree)
-    directory_name = f'{doc_type}_{degree}' \
-        if input_type not in ['current', 'updated', 'published', 'sozd'] \
-        else input_type
-    downloader = Downloader(tasks,
-                            directory=directory_name,
-                            parent_directory=download_directory)
+    create_directories()
+
+    tasks, failed = make_queue(input_db)
+    downloader = Downloader(tasks, parent_directory=download_directory)
     download_executor = ThreadPoolExecutor(max_workers=workers)
     for _ in range(workers):
         download_executor.submit(downloader)
